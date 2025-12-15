@@ -2,22 +2,23 @@ import streamlit as st
 import time
 import random
 import pandas as pd
+from datetime import datetime
 import plotly.express as px
+import hashlib
 
-# Page config
+# Page setup
 st.set_page_config(
     page_title="DNS Query Simulator",
     page_icon="🌐",
     layout="centered"
 )
 
-# Title
-st.markdown("<h1 style='text-align: center;'>🌐 DNS Query Simulator</h1>", unsafe_allow_html=True)
-st.markdown("<p style='text-align: center;'>Network Analysis & Simulation Project</p>", unsafe_allow_html=True)
+st.markdown("<h1 style='text-align:center;'>🌐 DNS Query Simulator</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;'>Network Analysis & Simulation</p>", unsafe_allow_html=True)
 
 st.divider()
 
-# Fake DNS Database
+# Fake DNS records
 DNS_DATABASE = {
     "google.com": "142.250.190.14",
     "facebook.com": "157.240.241.35",
@@ -26,77 +27,124 @@ DNS_DATABASE = {
     "openai.com": "104.18.12.123"
 }
 
-# Cache
 CACHE = {}
 
-# Input
+# User Inputs
 domain = st.text_input("🔍 Enter Domain Name", placeholder="e.g. google.com")
+mode = st.radio("🔐 Query Mode", ["Normal DNS", "DNS over HTTPS (Encrypted)"])
+simulate = st.button("🚀 Start Simulation")
 
-simulate = st.button("🚀 Simulate DNS Query")
+# Containers
+packet_box = st.empty()
+progress_bar = st.empty()
+log_container = st.empty()
+
+logs = []
+steps = []
+latency = []
+
+def add_log(src, dst, protocol, info):
+    logs.append({
+        "Time": datetime.now().strftime("%H:%M:%S"),
+        "Source": src,
+        "Destination": dst,
+        "Protocol": protocol,
+        "Info": info
+    })
+
+def animate_packet(text, delay=1):
+    packet_box.info(text)
+    time.sleep(delay)
 
 if simulate and domain:
-    st.subheader("🧩 DNS Resolution Process")
+    st.subheader("📦 Packet Flow Animation")
 
-    steps = []
-    latency = []
+    progress = progress_bar.progress(0)
 
-    with st.spinner("Checking Local Cache..."):
-        time.sleep(1)
-        if domain in CACHE:
-            st.success("✔ Found in Local Cache")
-            ip = CACHE[domain]
-            steps.append("Local Cache")
-            latency.append(random.randint(1, 5))
-        else:
-            st.warning("❌ Not in Cache")
-            steps.append("Local Cache")
-            latency.append(random.randint(5, 15))
+    # Encrypt domain if DoH
+    if mode == "DNS over HTTPS (Encrypted)":
+        encrypted_domain = hashlib.sha256(domain.encode()).hexdigest()
+        query_data = encrypted_domain
+        protocol = "HTTPS (DoH)"
+    else:
+        query_data = domain
+        protocol = "DNS"
 
-            with st.spinner("Querying Recursive Resolver..."):
-                time.sleep(1)
-                steps.append("Recursive Resolver")
-                latency.append(random.randint(10, 30))
+    # Step 1: Client → Cache
+    animate_packet("🖥️ Client → Local DNS Cache")
+    add_log("Client", "Local Cache", protocol, f"Query: {query_data}")
+    progress.progress(15)
+    latency.append(random.randint(5, 15))
+    steps.append("Local Cache")
 
-            with st.spinner("Contacting Root DNS Server..."):
-                time.sleep(1)
-                steps.append("Root Server")
-                latency.append(random.randint(20, 50))
+    if domain in CACHE:
+        ip = CACHE[domain]
+        add_log("Local Cache", "Client", protocol, f"Response: {ip}")
+    else:
+        # Step 2: Recursive Resolver
+        animate_packet("📡 Cache → Recursive Resolver")
+        add_log("Cache", "Recursive Resolver", protocol, "Forward Query")
+        progress.progress(35)
+        latency.append(random.randint(15, 30))
+        steps.append("Recursive Resolver")
 
-            with st.spinner("Contacting TLD Server (.com)..."):
-                time.sleep(1)
-                steps.append("TLD Server")
-                latency.append(random.randint(20, 50))
+        # Step 3: Root Server
+        animate_packet("🌍 Resolver → Root Server")
+        add_log("Resolver", "Root Server", protocol, "Request TLD Info")
+        progress.progress(55)
+        latency.append(random.randint(25, 45))
+        steps.append("Root Server")
 
-            with st.spinner("Contacting Authoritative Server..."):
-                time.sleep(1)
-                steps.append("Authoritative Server")
-                latency.append(random.randint(30, 80))
+        # Step 4: TLD Server
+        animate_packet("📂 Root → TLD Server (.com)")
+        add_log("Root", "TLD Server", protocol, "Request Authoritative Server")
+        progress.progress(75)
+        latency.append(random.randint(25, 45))
+        steps.append("TLD Server")
 
-            ip = DNS_DATABASE.get(domain, "Unknown")
-            CACHE[domain] = ip
+        # Step 5: Authoritative Server
+        animate_packet("🏢 TLD → Authoritative Server")
+        ip = DNS_DATABASE.get(domain, "Unknown")
+        add_log("Authoritative Server", "Resolver", protocol, f"IP Address: {ip}")
+        progress.progress(90)
+        latency.append(random.randint(35, 70))
+        steps.append("Authoritative Server")
+
+        CACHE[domain] = ip
+
+    # Final Response
+    animate_packet("✅ Resolver → Client (Response Received)")
+    add_log("Resolver", "Client", protocol, f"Resolved IP: {ip}")
+    progress.progress(100)
 
     st.divider()
 
     # Result
     st.subheader("✅ DNS Resolution Result")
-    st.metric(label="Resolved IP Address", value=ip)
+    st.metric("Resolved IP Address", ip)
 
-    # Table
+    if mode == "DNS over HTTPS (Encrypted)":
+        st.success("🔐 Query was encrypted using DNS over HTTPS (DoH)")
+        st.code(f"Encrypted Payload (SHA-256):\n{encrypted_domain}")
+
+    # Wireshark Logs
+    st.subheader("🧪 Wireshark-Style Packet Logs")
+    log_df = pd.DataFrame(logs)
+    st.dataframe(log_df, use_container_width=True)
+
+    # Latency Analysis
+    st.subheader("📊 Latency Analysis")
     df = pd.DataFrame({
         "DNS Step": steps,
         "Latency (ms)": latency
     })
 
-    st.subheader("📊 Query Analysis")
-    st.dataframe(df, use_container_width=True)
-
-    # Chart
-    fig = px.bar(
+    fig = px.line(
         df,
         x="DNS Step",
         y="Latency (ms)",
-        title="DNS Query Latency per Step",
-        text="Latency (ms)"
+        markers=True,
+        title="DNS Packet Latency Flow"
     )
     st.plotly_chart(fig, use_container_width=True)
 
